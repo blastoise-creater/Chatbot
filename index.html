@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Chatbot with Themes & Sidebar</title>
+<script src="https://cdn.jsdelivr.net/npm/emoji-button@latest/dist/index.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Arial',sans-serif;display:flex;height:100vh;transition:all 0.3s;background-color:#f0f2f5;color:#000;}
+body.dark-mode{background-color:#121212;color:#fff;}
+body.colorful-mode{background:linear-gradient(135deg,#ff9a9e,#fad0c4,#a1c4fd);color:#fff;}
+/* Sidebar */
+#sidebar{width:300px;background-color:#fff;box-shadow:2px 0 10px rgba(0,0,0,0.1);padding:20px;display:flex;flex-direction:column;transition:all 0.3s;overflow-y:auto;}
+body.dark-mode #sidebar{background-color:#1f1f1f;}
+body.colorful-mode #sidebar{background-color:rgba(255,255,255,0.2);}
+#sidebar h2{margin-bottom:15px;}
+#sidebar label{margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;}
+#sidebar input[type="checkbox"]{transform:scale(1.2);}
+#training-panel{margin-top:20px;}
+#training-panel input,#training-panel textarea{width:100%;padding:8px;margin-bottom:10px;border-radius:5px;border:1px solid #ccc;}
+#training-panel button{padding:8px;width:100%;border:none;border-radius:5px;background-color:#28a745;color:#fff;cursor:pointer;}
+#training-panel button:hover{background-color:#218838;}
+/* Chat Container */
+#chat-container{flex:1;display:flex;flex-direction:column;padding:20px;transition:all 0.3s;}
+#chat-box{flex:1;overflow-y:auto;padding:15px;border-radius:10px;background-color:#f9f9f9;display:flex;flex-direction:column;transition:0.3s;}
+body.dark-mode #chat-box{background-color:#2a2a2a;}
+body.colorful-mode #chat-box{background-color:rgba(255,255,255,0.2);}
+.message{margin:8px 0;padding:12px 15px;border-radius:15px;max-width:70%;word-wrap:break-word;opacity:0;animation:fadeIn 0.5s forwards;font-size:14px;position:relative;}
+.user-message{align-self:flex-end;background-color:#007bff;color:#fff;}
+body.dark-mode .user-message{background-color:#3399ff;}
+body.colorful-mode .user-message{background-color:rgba(0,123,255,0.8);}
+.bot-message{align-self:flex-start;background-color:#e0e0e0;color:#000;}
+body.dark-mode .bot-message{background-color:#444;}
+body.colorful-mode .bot-message{background-color:rgba(255,255,255,0.6);}
+.timestamp{font-size:0.7rem;color:#888;display:block;margin-top:5px;text-align:right;}
+@keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+/* Input Area */
+#input-area{display:flex;margin-top:10px;}
+#user-input{flex:1;padding:12px;border-radius:5px;border:1px solid #ccc;font-size:14px;}
+#send-btn,#emoji-btn,#file-btn{margin-left:5px;padding:12px;border:none;border-radius:5px;cursor:pointer;background-color:#007bff;color:#fff;font-size:14px;}
+#send-btn:hover,#emoji-btn:hover,#file-btn:hover{background-color:#0056b3;}
+#file-input{display:none;}
+/* Sidebar toggle */
+#sidebar-toggle{position:absolute;top:20px;left:20px;padding:8px 12px;background:#007bff;color:#fff;border:none;border-radius:5px;cursor:pointer;z-index:10;}
+#sidebar-toggle:hover{background:#0056b3;}
+@media(max-width:900px){#sidebar{display:none;} #sidebar-toggle{display:block;}}
+</style>
+</head>
+<body>
+<button id="sidebar-toggle">☰</button>
+<div id="sidebar">
+    <h2>Settings</h2>
+    <label>Dark Mode <input type="checkbox" id="theme-toggle"></label>
+    <label>Colorful Mode <input type="checkbox" id="colorful-toggle"></label>
+    <div id="training-panel">
+        <h2>Train Bot</h2>
+        <input type="text" id="new-question" placeholder="Enter user message">
+        <textarea id="new-response" placeholder="Enter bot response"></textarea>
+        <button id="train-btn">Add Response</button>
+    </div>
+</div>
+<div id="chat-container">
+    <div id="chat-box"></div>
+    <div id="input-area">
+        <input type="text" id="user-input" placeholder="Type a message..." maxlength="200">
+        <button id="emoji-btn">😊</button>
+        <button id="file-btn">📎</button>
+        <input type="file" id="file-input">
+        <button id="send-btn">Send</button>
+    </div>
+</div>
+
+<script>
+  // Firebase Config
+  const firebaseConfig = {
+      apiKey: "AIzaSyCxc3QK147Y0s_ZqQxIgpnbUuIs0Gc3HfU",
+      authDomain: "thechatbot-73d49.firebaseapp.com",
+      projectId: "thechatbot-73d49",
+      storageBucket: "thechatbot-73d49.firebasestorage.app",
+      messagingSenderId: "741159528536",
+      appId: "1:741159528536:web:f81e03f553340a4a31422d",
+      measurementId: "G-7XYPPWG72D"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  const chatBox = document.getElementById('chat-box');
+  const userInput = document.getElementById('user-input');
+  const sendBtn = document.getElementById('send-btn');
+  const emojiBtn = document.getElementById('emoji-btn');
+  const fileBtn = document.getElementById('file-btn');
+  const fileInput = document.getElementById('file-input');
+  const themeToggle = document.getElementById('theme-toggle');
+  const colorfulToggle = document.getElementById('colorful-toggle');
+  const sidebar = document.getElementById('sidebar');
+  const sidebarToggle = document.getElementById('sidebar-toggle');
+
+  const trainBtn = document.getElementById('train-btn');
+  const newQuestion = document.getElementById('new-question');
+  const newResponse = document.getElementById('new-response');
+
+  let responses = {
+      "hello":"Hi there! How can I assist you today?",
+      "how are you":"I'm just a program, but thanks for asking!",
+      "what's your name":"I'm your Smart Chatbot!",
+      "bye":"Goodbye! Have a great day!",
+      "tell me a joke":"Why don't scientists trust atoms? They make up everything!"
+  };
+
+  // Load learned responses
+  db.ref('learned').on('value', snapshot => {
+      if(snapshot.exists()) responses = {...responses, ...snapshot.val()};
+  });
+
+  function addMessage(sender,message){
+      const msg=document.createElement('div');
+      msg.classList.add('message',sender==='user'?'user-message':'bot-message');
+      msg.innerHTML=`${message}<span class="timestamp">${new Date().toLocaleTimeString()}</span>`;
+      chatBox.appendChild(msg);
+      chatBox.scrollTop = chatBox.scrollHeight;
+  }
+
+  function getResponse(msg){
+      const lower = msg.toLowerCase();
+      for(let key in responses) if(lower.includes(key)) return responses[key];
+      // unknown: save for learning
+      const newKey = db.ref('unknown').push().key;
+      db.ref('unknown/'+newKey).set({message:msg});
+      return "I'm learning about that. I'll respond better next time!";
+  }
+
+  function sendMessage(){
+      const msg=userInput.value.trim();
+      if(!msg) return;
+      addMessage('user',msg);
+      addMessage('bot',getResponse(msg));
+      userInput.value='';
+      userInput.focus();
+  }
+
+  sendBtn.addEventListener('click',sendMessage);
+  userInput.addEventListener('keypress',e=>{if(e.key==='Enter') sendMessage();});
+
+  // Emoji
+  const picker=new EmojiButton();
+  emojiBtn.addEventListener('click',()=>picker.togglePicker(emojiBtn));
+  picker.on('emoji',emoji=>{userInput.value+=emoji; userInput.focus();});
+
+  // File
+  fileBtn.addEventListener('click',()=>fileInput.click());
+  fileInput.addEventListener('change',e=>{
+      const file = e.target.files[0];
+      if(file) addMessage('user',`Shared a file: ${file.name}`);
+      fileInput.value='';
+  });
+
+  // Theme toggles
+  themeToggle.addEventListener('change',()=>document.body.classList.toggle('dark-mode'));
+  colorfulToggle.addEventListener('change',()=>document.body.classList.toggle('colorful-mode'));
+
+  // Sidebar toggle
+  sidebarToggle.addEventListener('click',()=>sidebar.classList.toggle('hidden'));
+
+  // Training panel
+  trainBtn.addEventListener('click',()=>{
+      const question = newQuestion.value.trim().toLowerCase();
+      const answer = newResponse.value.trim();
+      if(!question || !answer) return alert("Both fields required.");
+      responses[question] = answer;
+      db.ref('learned/'+question.replace(/[\.\$\#\[\]\/]/g,'_')).set(answer);
+      addMessage('bot',`Learned new response for: "${question}"`);
+      newQuestion.value=''; newResponse.value='';
+  });
+</script>
+</body>
+  </html>
